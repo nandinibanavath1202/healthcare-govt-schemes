@@ -1,0 +1,224 @@
+// Prisma schema for Telangana Government Healthcare Schemes Portal & AI Assistant
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Category {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  slug         String   @unique
+  description  String?
+  icon         String?
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  schemes      Scheme[]
+}
+
+model Scheme {
+  id                  String   @id @default(cuid())
+  name                String
+  nameTelugu          String?
+  slug                String   @unique
+  categoryId          String
+  category            Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  
+  summary             String
+  purpose             String
+  intendedGroups      String   // Comma-separated or JSON string, e.g. ["Women", "BPL Families"]
+  eligibilityCriteria String   // Bullet-pointed or JSON list of eligibility conditions
+  benefits            String   // Quantified benefits, monetary amounts, subsidies
+  requiredDocuments   String   // List of required documents (Aadhaar, Food Security Card, etc.)
+  applicationSteps    String   // Step-by-step guidance on where and how to apply
+  
+  officialUrl         String   // Official Telangana government portal URL
+  sourceAuthority     String   // e.g. "Aarogyasri Health Care Trust, Govt. of Telangana"
+  lastVerifiedAt      DateTime // When the data was last confirmed against official source
+  reviewWarning       String?  // Stale or transitional warning if details may evolve
+  caveats             String?  // Exclusions, limits per family, common rejection reasons
+  
+  isPublished         Boolean  @default(true)
+  isSampleOnly        Boolean  @default(false) // Flagged if illustrative seed vs official verified
+  viewCount           Int      @default(0)
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // New relations for Healthcare enhancements
+  savedByUsers        SavedScheme[]
+  eligibilityChecks   EligibilityCheck[]
+  applications        ApplicationTracking[]
+
+  @@index([slug])
+  @@index([categoryId])
+  @@index([isPublished])
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  phone        String?
+  district     String?
+  role         String   @default("CITIZEN") // "ADMIN", "CITIZEN"
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Citizen relations
+  savedSchemes       SavedScheme[]
+  eligibilityChecks  EligibilityCheck[]
+  documents          UserDocument[]
+  applications       ApplicationTracking[]
+  notifications      Notification[]
+}
+
+model SavedScheme {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schemeId  String
+  scheme    Scheme   @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, schemeId])
+  @@index([userId])
+}
+
+model EligibilityCheck {
+  id                   String   @id @default(cuid())
+  userId               String?
+  user                 User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schemeId             String?
+  scheme               Scheme?  @relation(fields: [schemeId], references: [id], onDelete: SetNull)
+  answers              String   // JSON user answers (income, age, district, ration card, etc.)
+  resultStatus         String   // "APPEARS_ELIGIBLE", "MAY_BE_ELIGIBLE", "NOT_ELIGIBLE", "INSUFFICIENT_INFO"
+  criteriaSatisfied    String   // JSON array of satisfied conditions
+  criteriaNotSatisfied String   // JSON array of unsatisfied conditions
+  missingInfo          String?  // JSON array of missing fields
+  createdAt            DateTime @default(now())
+
+  @@index([userId])
+  @@index([schemeId])
+}
+
+model Hospital {
+  id              String   @id @default(cuid())
+  name            String
+  nameTelugu      String?
+  type            String   // "Government Teaching Hospital", "District Hospital", "Area Hospital", "Aarogyasri Empaneled Private"
+  district        String   // "Hyderabad", "Warangal", "Karimnagar", "Ranga Reddy", etc.
+  address         String
+  contactNumber   String?
+  latitude        Float?
+  longitude       Float?
+  services        String   // JSON array of specialties/departments
+  officialWebsite String?
+  sourceUrl       String?
+  isVerified      Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([district])
+  @@index([type])
+}
+
+model UserDocument {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title        String
+  fileName     String
+  storedPath   String
+  fileType     String
+  fileSize     Int
+  documentType String   // "Aadhaar Card", "Food Security Card", "Income Certificate", "Medical Discharge Summary", "Other"
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+}
+
+model ApplicationTracking {
+  id                String                     @id @default(cuid())
+  userId            String
+  user              User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schemeId          String
+  scheme            Scheme                     @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  applicationNumber String
+  submissionDate    DateTime
+  status            String                     @default("SUBMITTED") // "DRAFT", "SUBMITTED", "UNDER_REVIEW", "ADDITIONAL_DOCS_REQUIRED", "APPROVED", "REJECTED"
+  notes             String?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  statusHistory     ApplicationStatusHistory[]
+
+  @@index([userId])
+  @@index([schemeId])
+}
+
+model ApplicationStatusHistory {
+  id            String              @id @default(cuid())
+  applicationId String
+  application   ApplicationTracking @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  status        String
+  remarks       String?
+  updatedBy     String?             // "USER" or Admin email
+  createdAt     DateTime            @default(now())
+
+  @@index([applicationId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String?  // null indicates global announcement
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("SYSTEM") // "APPLICATION", "SCHEME", "ALERT", "SYSTEM"
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String   // "CREATE_SCHEME", "UPDATE_SCHEME", "DELETE_SCHEME", "STATUS_CHANGE", "LOGIN"
+  details   String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+}
+
+model Conversation {
+  id        String    @id @default(cuid())
+  sessionId String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  messages  Message[]
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String       // "user" | "assistant"
+  content        String
+  groundedSlugs  String?      // JSON array of matched scheme slugs
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+}
